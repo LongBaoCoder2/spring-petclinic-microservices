@@ -7,21 +7,17 @@ pipeline {
                 script {
                     def changedFiles
                     if (env.CHANGE_TARGET) {
-                        // Trường hợp chạy trong PR
                         changedFiles = sh(returnStdout: true, script: "git diff --name-only origin/${env.CHANGE_TARGET}...HEAD").trim().split('\n')
                     } else {
-                        // Trường hợp chạy trên nhánh chính (push trực tiếp)
                         changedFiles = sh(returnStdout: true, script: "git diff --name-only HEAD^ HEAD").trim().split('\n')
                     }
                     
-                    // Xác định các dịch vụ bị ảnh hưởng
                     def affectedServices = changedFiles.collect { file ->
                         if (file.startsWith('spring-petclinic-')) {
                             return file.split('/')[0]
                         }
                     }.unique()
                     
-                    // Lưu danh sách dịch vụ bị ảnh hưởng
                     env.AFFECTED_SERVICES = affectedServices.join(',')
                     echo "Affected services: ${env.AFFECTED_SERVICES}"
                 }
