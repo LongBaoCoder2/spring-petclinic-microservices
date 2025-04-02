@@ -1,36 +1,38 @@
 pipeline {
-    // Chạy pipeline trên agent có nhãn 'build-agent'
     agent any
 
     stages {
-        // Giai đoạn 1: Xác định các dịch vụ bị ảnh hưởng bởi thay đổi
         stage('Determine changed services') {
             steps {
                 script {
-                    // Lấy danh sách file thay đổi trong PR so với nhánh target (thường là main)
-                    def changedFiles = sh(returnStdout: true, script: "git diff --name-only origin/${env.CHANGE_TARGET}...HEAD").trim().split('\n')
+                    def changedFiles
+                    if (env.CHANGE_TARGET) {
+                        // Trường hợp chạy trong PR
+                        changedFiles = sh(returnStdout: true, script: "git diff --name-only origin/${env.CHANGE_TARGET}...HEAD").trim().split('\n')
+                    } else {
+                        // Trường hợp chạy trên nhánh chính (push trực tiếp)
+                        changedFiles = sh(returnStdout: true, script: "git diff --name-only HEAD^ HEAD").trim().split('\n')
+                    }
                     
-                    // Xác định các dịch vụ bị ảnh hưởng (các thư mục bắt đầu bằng 'spring-petclinic-')
+                    // Xác định các dịch vụ bị ảnh hưởng
                     def affectedServices = changedFiles.collect { file ->
                         if (file.startsWith('spring-petclinic-')) {
                             return file.split('/')[0]
                         }
-                    }.unique() // Loại bỏ trùng lặp
+                    }.unique()
                     
-                    // Lưu danh sách dịch vụ bị ảnh hưởng vào biến môi trường
+                    // Lưu danh sách dịch vụ bị ảnh hưởng
                     env.AFFECTED_SERVICES = affectedServices.join(',')
+                    echo "Affected services: ${env.AFFECTED_SERVICES}"
                 }
             }
         }
 
-        // Giai đoạn 2: Kiểm thử các dịch vụ bị ảnh hưởng
         stage('Test affected services') {
             steps {
                 script {
                     if (env.AFFECTED_SERVICES) {
-                        // Chạy lệnh Maven để test các dịch vụ bị ảnh hưởng
                         sh "mvn -pl ${env.AFFECTED_SERVICES} test"
-                        // Upload kết quả kiểm thử (JUnit reports)
                         junit '**/target/surefire-reports/*.xml'
                     } else {
                         echo 'Không có dịch vụ nào bị ảnh hưởng, bỏ qua giai đoạn test'
@@ -39,18 +41,25 @@ pipeline {
             }
         }
 
-        // Giai đoạn 3: Build các dịch vụ bị ảnh hưởng
         stage('Build affected services') {
             steps {
                 script {
                     if (env.AFFECTED_SERVICES) {
-                        // Build các dịch vụ bị ảnh hưởng, bỏ qua test vì đã chạy ở giai đoạn trước
                         sh "mvn -pl ${env.AFFECTED_SERVICES} package -DskipTests"
                     } else {
                         echo 'Không có dịch vụ nào bị ảnh hưởng, bỏ qua giai đoạn build'
                     }
                 }
             }
+        }
+    }
+
+    post {
+        always {
+            echo 'Pipeline hoàn tất!'
+        }
+        failure {
+            echo 'Pipeline thất bại!'
         }
     }
 }
